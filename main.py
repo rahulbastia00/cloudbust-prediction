@@ -337,11 +337,8 @@ with st.form("prediction_form"):
             help="Fetch N days ending on the selected date to build the 12-hour input window.",
         )
 
-    threshold = st.slider(
-        "⚙️ Decision Threshold (probability)",
-        min_value=0.10, max_value=0.90, value=0.50, step=0.05,
-        help="Lower = more sensitive (more alerts). Higher = fewer false positives.",
-    )
+    # Decision threshold is now constant at 0.65
+    threshold = 0.65
 
     submitted = st.form_submit_button("🔍  Run Prediction")
 
@@ -405,7 +402,7 @@ if submitted:
             <div class="result-icon">⛈️</div>
             <div class="result-label">CLOUDBURST LIKELY</div>
             <div class="result-sub">
-                Probability: <strong>{prob*100:.1f}%</strong> &nbsp;|&nbsp; Threshold: {threshold*100:.0f}%
+                Probability: <strong>{prob*100:.1f}%</strong> &nbsp;|&nbsp; Threshold: 65%
             </div>
         </div>
         """, unsafe_allow_html=True)
@@ -415,7 +412,7 @@ if submitted:
             <div class="result-icon">🌤️</div>
             <div class="result-label">CONDITIONS NORMAL</div>
             <div class="result-sub">
-                Probability: <strong>{prob*100:.1f}%</strong> &nbsp;|&nbsp; Threshold: {threshold*100:.0f}%
+                Probability: <strong>{prob*100:.1f}%</strong> &nbsp;|&nbsp; Threshold: 65%
             </div>
         </div>
         """, unsafe_allow_html=True)
