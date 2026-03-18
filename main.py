@@ -19,7 +19,7 @@ st.set_page_config(
 )
 
 # ─────────────────────────────────────────────
-#  CUSTOM CSS  (clean dark weather aesthetic)
+#  CUSTOM CSS
 # ─────────────────────────────────────────────
 st.markdown("""
 <style>
@@ -107,7 +107,7 @@ div.stButton > button:hover {
 """, unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────
-#  MODEL DEFINITION  (must match training code)
+#  MODEL DEFINITION
 # ─────────────────────────────────────────────
 class AttentionBlock(nn.Module):
     def __init__(self, hidden_size):
@@ -119,11 +119,10 @@ class AttentionBlock(nn.Module):
         )
 
     def forward(self, gru_output):
-        attn_weights = self.attention(gru_output)          # (batch, seq, 1)
+        attn_weights = self.attention(gru_output)
         attn_weights = F.softmax(attn_weights, dim=1)
         context_vector = torch.sum(attn_weights * gru_output, dim=1)
         return context_vector, attn_weights
-
 
 class CloudburstAttentionGRU(nn.Module):
     def __init__(self, input_size, hidden_size=128, num_layers=3):
@@ -145,333 +144,231 @@ class CloudburstAttentionGRU(nn.Module):
         out            = self.bn(context)
         return self.fc(out)
 
-
 # ─────────────────────────────────────────────
-#  LOAD MODEL + SCALER  (cached so it only runs once)
+#  LOAD ARTIFACTS
 # ─────────────────────────────────────────────
 @st.cache_resource
 def load_artifacts():
-    """
-    Load the saved scaler and model weights.
-    Place  best_cloud_model_attn.pth  and  cloudburst_scaler_attn.pkl
-    in the SAME folder as this script.
-    """
     try:
         scaler = joblib.load("cloudburst_scaler_attn.pkl")
-        # Derive input_size from scaler
         input_size = scaler.n_features_in_
         model = CloudburstAttentionGRU(input_size=input_size)
-        model.load_state_dict(
-            torch.load("best_cloud_model_attn.pth", map_location="cpu")
-        )
+        model.load_state_dict(torch.load("best_cloud_model_attn.pth", map_location="cpu"))
         model.eval()
-        return scaler, model, None          # None = no error
-    except FileNotFoundError as e:
+        return scaler, model, None
+    except Exception as e:
         return None, None, str(e)
-
 
 scaler, model, load_error = load_artifacts()
 
 # ─────────────────────────────────────────────
+#  LOCATIONS LIST
+# ─────────────────────────────────────────────
+LOCATIONS = [
+    "Chaned (Kali Mata temple), Chamba, Himachal Pradesh", "Bohrakun, Nainital, Uttarakhand",
+    "Papoli (Nakuri patti), Bageshwar, Uttarakhand", "Khadiseri village (Garsa valley), Kullu, Himachal Pradesh",
+    "Hell village (Tepa panchayat), Chamba, Himachal Pradesh", "Changsheel Bugyal (Mori), Uttarkashi, Uttarakhand",
+    "Karpat (Miyar valley), Lahaul & Spiti, Himachal Pradesh", "Batseri, Kinnaur, Himachal Pradesh",
+    "Mori Market, Uttarkashi, Uttarakhand", "Chojh village (Manikaran Valley), Kullu, Himachal Pradesh",
+    "Malana HEP dam site, Kullu, Himachal Pradesh", "Bhagot village, Bilaspur, Himachal Pradesh",
+    "Amarnath Shrine (Pahalgam), Jammu and Kashmir", "Munar (Luhar Valley), Bageshwar, Uttarakhand",
+    "Sainranthi (Munsyari), Pithoragarh, Uttarakhand", "Haldwani city, Nainital, Uttarakhand",
+    "Shilagarh (Garsa valley), Kullu, Himachal Pradesh", "Lunekh village, Chamba, Himachal Pradesh",
+    "Kudtha village, Chamba, Himachal Pradesh", "Shivan (Kumarsain), Shimla, Himachal Pradesh",
+    "Gotang (Pooh), Kinnaur, Himachal Pradesh", "Leo Village (Pooh), Kinnaur, Himachal Pradesh",
+    "Sumdo check post, Lahaul & Spiti, Himachal Pradesh", "Patodi tok (Joshimath), Chamoli, Uttarakhand",
+    "Giu village, Lahaul & Spiti, Himachal Pradesh", "Chanaighad area, Kullu, Himachal Pradesh",
+    "Jhimir (Darma Valley), Pithoragarh, Uttarakhand", "Bhararisain, Chamoli, Uttarakhand",
+    "Jogadi (Srinagar), Pauri, Uttarakhand", "Chhinka village (Augustmuni), Rudraprayag, Uttarakhand",
+    "Agarchatti Basti (Gairsain), Chamoli, Uttarakhand", "Purola, Uttarkashi, Uttarakhand",
+    "Gaideta village, Dehradun, Uttarakhand", "Sarkhet (Maldevta), Dehradun, Uttarakhand",
+    "Gwad (Kumalda), Tehri, Uttarakhand", "Binak (Yamkeshwar), Pauri, Uttarakhand",
+    "Arakot (Mori), Uttarkashi, Uttarakhand", "Gharad (Jakholi), Rudraprayag, Uttarakhand",
+    "Chirbatiya (Ghansali), Tehri, Uttarakhand", "Khotila village (Dharchula), Pithoragarh, Uttarakhand",
+    "Udpalta (Chakrata), Dehradun, Uttarakhand", "Gangtok, East Sikkim, Sikkim",
+    "Bindoo Zalangam (Kokernag), Anantnag, Jammu and Kashmir", "Lammar Hallan, Kulgam, Jammu and Kashmir",
+    "Bujbagh (Pampore), Pulwama, Jammu and Kashmir", "Pakyong, East Sikkim, Sikkim",
+    "Kulgam district, Jammu and Kashmir", "Manali Valley, Kullu, Himachal Pradesh",
+    "Kharyouk area, Leh, Ladakh", "Mandi town, Mandi, Himachal Pradesh",
+    "Garsa valley, Kullu, Himachal Pradesh", "Gujjar Pati Zurhama, Kupwara, Jammu and Kashmir",
+    "Reasi district, Jammu and Kashmir", "Salooni, Chamba, Himachal Pradesh",
+    "Upper Leh, Leh, Ladakh", "Naginar (Faqir Gujri), Srinagar, Jammu and Kashmir",
+    "Damhal Hanjipora, Kulgam, Jammu and Kashmir", "Kota Nullah, Doda, Jammu and Kashmir",
+    "Kias village, Kullu, Himachal Pradesh", "Leh town, Leh, Ladakh",
+    "Lolab valley, Kupwara, Jammu and Kashmir", "Gharshu village (Nichar), Kinnaur, Himachal Pradesh",
+    "Kalamassery, Ernakulam, Kerala", "Thrikkakara, Ernakulam, Kerala",
+    "Jiawala village (Arki), Solan, Himachal Pradesh", "Dana village (Rajpur), Sirmaur, Himachal Pradesh",
+    "Talehan village (Karsog), Mandi, Himachal Pradesh", "Retua village (Paonta), Sirmaur, Himachal Pradesh",
+    "Palchan village (Anjani Mahadev), Kullu, Himachal Pradesh", "Karpat village (Miyar valley), Lahaul & Spiti, Himachal Pradesh",
+    "Ropa village (Pooh), Kinnaur, Himachal Pradesh", "Tosh village (Manikaran), Kullu, Himachal Pradesh",
+    "Samej village (Rampur), Shimla, Himachal Pradesh", "Jhakadi area (Rampur), Shimla, Himachal Pradesh",
+    "Singhgad (Kullu), Himachal Pradesh", "Padhar area, Mandi, Himachal Pradesh",
+    "Samej Khad (Rampur), Shimla, Himachal Pradesh", "Jaon village (Nirmand), Kullu, Himachal Pradesh",
+    "Bagipul area (Nirmand), Kullu, Himachal Pradesh", "Tikkan village (Padhar), Mandi, Himachal Pradesh",
+    "Ghansali, Tehri Garhwal, Uttarakhand", "Terang village (Chauhar Valley), Mandi, Himachal Pradesh",
+    "Sagnam village (Pin valley), Lahaul & Spiti, Himachal Pradesh", "Darcha-Shinkula road, Lahaul & Spiti, Himachal Pradesh",
+    "Kedarnath Valley, Rudraprayag, Uttarakhand", "Chicham village (Kaza), Lahaul & Spiti, Himachal Pradesh",
+    "Jobrang village (Kelang), Lahaul & Spiti, Himachal Pradesh", "Tarapur (Nerwa), Shimla, Himachal Pradesh",
+    "Matar village (Nahan), Sirmaur, Himachal Pradesh", "Khab village (Pooh), Kinnaur, Himachal Pradesh",
+    "Thikru village (Sangla), Kinnaur, Himachal Pradesh", "Damrali village (Rampur), Shimla, Himachal Pradesh",
+    "Baghal village (Rampur), Shimla, Himachal Pradesh", "Parduni village (Paonta Sahib), Sirmaur, Himachal Pradesh",
+    "Karnah (Kupwara), Jammu and Kashmir", "Jiwa valley (Sainj Valley), Kullu, Himachal Pradesh",
+    "Sainj Valley (Parbati II & III), Kullu, Himachal Pradesh", "Yamunotri Highway, Uttarkashi, Uttarakhand",
+    "Gudah village (Bakhali khad), Mandi, Himachal Pradesh", "Thunag (Mandi), Himachal Pradesh",
+    "Janjehli (Mandi), Himachal Pradesh", "Karsog (Mandi), Himachal Pradesh",
+    "Gohar (Mandi), Himachal Pradesh", "Dharampur (Mandi), Himachal Pradesh",
+    "Mandi (Seraj Valley), Mandi, Himachal Pradesh", "Malana stream (tributary of Parvati), Kullu, Himachal Pradesh",
+    "Dharali village (Uttarkashi), Uttarakhand", "Sukhi Top (Uttarkashi), Uttarakhand",
+    "Bankura village (Pauri Garhwal), Uttarakhand", "Mansari village (Pauri Garhwal), Uttarakhand",
+    "Sarson village (Pauri Garhwal), Uttarakhand", "Katola gaad (Bankura village), Pauri, Uttarakhand",
+    "Chishoti/Chashoti village, Kishtwar, Jammu and Kashmir", "Buner district (J&K border), Jammu and Kashmir",
+    "Tharali region, Chamoli, Uttarakhand", "Doda district, Jammu and Kashmir",
+    "Sahastradhara, Dehradun, Uttarakhand", "Pausari Gram Panchayat (Kapkot), Bageshwar, Uttarakhand",
+    "Chennai (Various Locations), Tamil Nadu", "Mussoorie, Dehradun, Uttarakhand",
+    "Prem Nagar, Dehradun, Uttarakhand", "Vikasnagar, Dehradun, Uttarakhand",
+    "Garia, Kolkata, West Bengal", "Jodhpur Park, Kolkata, West Bengal",
+    "Kalighat, Kolkata, West Bengal", "Topsia, Kolkata, West Bengal",
+    "Ballygunge, Kolkata, West Bengal"
+]
+
+# ─────────────────────────────────────────────
 #  HELPER FUNCTIONS
 # ─────────────────────────────────────────────
-FEATURE_COLS = [
-    "temp", "hum", "press", "cloud", "soil_m",
-    "press_diff", "hum_diff", "temp_diff",
-    "dew_point_dep", "press_lag1", "temp_lag1",
-    "rain_roll3", "rain_roll6",
-    "hour", "month",
-]
+FEATURE_COLS = ["temp", "hum", "press", "cloud", "soil_m", "press_diff", "hum_diff", "temp_diff", "dew_point_dep", "press_lag1", "temp_lag1", "rain_roll3", "rain_roll6", "hour", "month"]
 
 @st.cache_data(ttl=3600)
 def get_coordinates(place: str):
-    geolocator = Nominatim(user_agent="cloudburst_predictor_app_v1")
+    geolocator = Nominatim(user_agent="cloudburst_predictor_v1_rahul")
     try:
         loc = geolocator.geocode(f"{place}, India", timeout=10)
-        if loc:
-            return loc.latitude, loc.longitude, None
-        # Fallback
-        parts = place.split(",")
-        if len(parts) >= 2:
-            fb = f"{parts[-2].strip()}, {parts[-1].strip()}, India"
-            loc = geolocator.geocode(fb, timeout=10)
-            if loc:
-                return loc.latitude, loc.longitude, None
-        return None, None, "Location not found. Try a broader name (e.g. 'Kullu, Himachal Pradesh')."
+        if loc: return loc.latitude, loc.longitude, None
+        return None, None, "Location not found. Try 'City, State'."
     except Exception as e:
         return None, None, str(e)
 
-
 def fetch_weather(lat, lon, start_date, end_date):
-    """Fetch hourly weather from Open-Meteo Archive API."""
     url = "https://archive-api.open-meteo.com/v1/archive"
     params = {
         "latitude": lat, "longitude": lon,
         "start_date": start_date, "end_date": end_date,
-        "hourly": (
-            "temperature_2m,relative_humidity_2m,precipitation,"
-            "surface_pressure,cloudcover,soil_moisture_0_to_7cm"
-        ),
+        "hourly": "temperature_2m,relative_humidity_2m,precipitation,surface_pressure,cloudcover,soil_moisture_0_to_7cm",
         "timezone": "GMT",
     }
     try:
         r = requests.get(url, params=params, timeout=30)
         r.raise_for_status()
         h = r.json()["hourly"]
-        df = pd.DataFrame({
-            "time":   h["time"],
-            "temp":   h["temperature_2m"],
-            "hum":    h["relative_humidity_2m"],
-            "precip": h["precipitation"],
-            "press":  h["surface_pressure"],
-            "cloud":  h["cloudcover"],
-            "soil_m": h["soil_moisture_0_to_7cm"],
-        })
+        df = pd.DataFrame({"time": h["time"], "temp": h["temperature_2m"], "hum": h["relative_humidity_2m"], "precip": h["precipitation"], "press": h["surface_pressure"], "cloud": h["cloudcover"], "soil_m": h["soil_moisture_0_to_7cm"]})
         df["time"] = pd.to_datetime(df["time"])
         return df, None
     except Exception as e:
         return None, str(e)
 
-
 def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
-    """Replicate ALL feature engineering from the training script."""
     df = df.sort_values("time").copy()
-
-    df["press_diff"]    = df["press"].diff().fillna(0)
-    df["hum_diff"]      = df["hum"].diff().fillna(0)
-    df["temp_diff"]     = df["temp"].diff().fillna(0)
+    df["press_diff"] = df["press"].diff().fillna(0)
+    df["hum_diff"] = df["hum"].diff().fillna(0)
+    df["temp_diff"] = df["temp"].diff().fillna(0)
     df["dew_point_dep"] = df["temp"] - ((100 - df["hum"]) / 5)
-    df["press_lag1"]    = df["press"].shift(1).bfill()
-    df["temp_lag1"]     = df["temp"].shift(1).bfill()
-    df["rain_roll3"]    = df["precip"].rolling(3).sum().fillna(0)
-    df["rain_roll6"]    = df["precip"].rolling(6).sum().fillna(0)
-    df["hour"]          = df["time"].dt.hour
-    df["month"]         = df["time"].dt.month
-
+    df["press_lag1"] = df["press"].shift(1).bfill()
+    df["temp_lag1"] = df["temp"].shift(1).bfill()
+    df["rain_roll3"] = df["precip"].rolling(3).sum().fillna(0)
+    df["rain_roll6"] = df["precip"].rolling(6).sum().fillna(0)
+    df["hour"] = df["time"].dt.hour
+    df["month"] = df["time"].dt.month
     return df.dropna()
 
-
-WINDOW_SIZE = 12   # must match training
-
 def build_sequence(df: pd.DataFrame, scaler, target_time: datetime):
-    """
-    Extract the 12-hour window ending AT target_time and scale it.
-    Returns a (1, 12, n_features) tensor or None if not enough history.
-    """
-    # Keep only rows up to and including target_time
-    window_df = df[df["time"] <= target_time].tail(WINDOW_SIZE)
-
-    if len(window_df) < WINDOW_SIZE:
-        return None, (
-            f"Not enough historical rows before the selected time "
-            f"(need {WINDOW_SIZE}, got {len(window_df)}). "
-            "Try selecting a later hour or fetch more days of data."
-        )
-
-    X = window_df[FEATURE_COLS].values          # (12, n_features)
-    X_scaled = scaler.transform(X)              # normalise
-    tensor = torch.FloatTensor(X_scaled).unsqueeze(0)  # (1, 12, n_features)
-    return tensor, None
-
+    window_df = df[df["time"] <= target_time].tail(12)
+    if len(window_df) < 12: return None, "Insufficient data history (need 12h)."
+    X = window_df[FEATURE_COLS].values
+    X_scaled = scaler.transform(X)
+    return torch.FloatTensor(X_scaled).unsqueeze(0), None
 
 def predict(model, tensor):
     with torch.no_grad():
         logit = model(tensor).squeeze().item()
-        prob  = torch.sigmoid(torch.tensor(logit)).item()
-    return prob
-
+        return torch.sigmoid(torch.tensor(logit)).item()
 
 # ─────────────────────────────────────────────
-#  UI  — HEADER
+#  UI — HEADER & FORM
 # ─────────────────────────────────────────────
-st.markdown("""
-<div style='text-align:center; padding: 2rem 0 1rem;'>
-    <div style='font-size:3.5rem;'>⛈️</div>
-    <h1 style='margin:0.2rem 0 0.4rem; font-size:2rem;'>Cloudburst Predictor</h1>
-    <p style='color:#8b949e; font-size:0.95rem; max-width:520px; margin:auto;'>
-        Enter a location, date and time.  The app fetches real weather data 
-        from Open-Meteo, runs it through an Attention-GRU model, and tells 
-        you whether a cloudburst is likely.
-    </p>
-</div>
-""", unsafe_allow_html=True)
+st.markdown("<div style='text-align:center;'><h1>⛈️ Cloudburst Predictor</h1></div>", unsafe_allow_html=True)
 
-# ─────────────────────────────────────────────
-#  SHOW MODEL-LOAD ERROR  (if any)
-# ─────────────────────────────────────────────
 if load_error:
-    st.error(
-        f"⚠️ **Could not load model files.**\n\n"
-        f"`{load_error}`\n\n"
-        "Make sure **`best_cloud_model_attn.pth`** and "
-        "**`cloudburst_scaler_attn.pkl`** are in the same folder as this script."
-    )
+    st.error(f"⚠️ Model load error: {load_error}")
     st.stop()
 
-# ─────────────────────────────────────────────
-#  INPUT FORM
-# ─────────────────────────────────────────────
-st.markdown("---")
 with st.form("prediction_form"):
-    st.markdown("### 📍 Prediction Inputs")
-
-    location_input = st.text_input(
-        "🗺️ Location (district / area, state)",
-        placeholder="e.g.  Kullu, Himachal Pradesh",
-        help="Be as specific as possible for better geocoding accuracy.",
-    )
+    st.markdown("### 📍 Location & Time")
+    
+    # DROP DOWN AND CUSTOM TOGGLE
+    loc_choice = st.selectbox("🗺️ Choose Location", ["Select a predefined location", "Enter Custom Location"] + sorted(LOCATIONS))
+    
+    location_input = ""
+    if loc_choice == "Enter Custom Location":
+        location_input = st.text_input("Enter manually", placeholder="District, State")
+    elif loc_choice != "Select a predefined location":
+        location_input = loc_choice
 
     col1, col2, col3 = st.columns(3)
     with col1:
-        pred_date = st.date_input(
-            "📅 Date",
-            value=datetime.today().date() - timedelta(days=2),   # 2 days ago (archive data available)
-            help="The archive API typically has data up to 2–3 days ago.",
-        )
+        pred_date = st.date_input("📅 Date", value=datetime.today().date() - timedelta(days=2))
     with col2:
-        pred_hour = st.slider("🕐 Hour (UTC)", min_value=0, max_value=23, value=12)
+        pred_hour = st.slider("🕐 Hour (UTC)", 0, 23, 12)
     with col3:
-        extra_days = st.number_input(
-            "📆 Days of history to fetch",
-            min_value=1, max_value=30, value=3,
-            help="Fetch N days ending on the selected date to build the 12-hour input window.",
-        )
+        extra_days = st.number_input("📆 History Days", 1, 30, 3)
 
-    # Decision threshold is now constant at 0.65
-    threshold = 0.65
-
-    submitted = st.form_submit_button("🔍  Run Prediction")
+    submitted = st.form_submit_button("🔍 Run Prediction")
 
 # ─────────────────────────────────────────────
-#  PREDICTION PIPELINE
+#  PREDICTION LOGIC
 # ─────────────────────────────────────────────
 if submitted:
-    if not location_input.strip():
-        st.warning("Please enter a location name.")
+    if not location_input:
+        st.warning("Please select or enter a location.")
         st.stop()
 
     target_dt = datetime(pred_date.year, pred_date.month, pred_date.day, pred_hour, 0)
 
-    # ── Step 1: Geocode ──
-    with st.status("🌐 Step 1 — Geocoding location…", expanded=True) as status:
+    with st.status("Processing...", expanded=True) as status:
         lat, lon, geo_err = get_coordinates(location_input)
         if geo_err:
-            status.update(label="❌ Geocoding failed", state="error")
-            st.error(geo_err)
-            st.stop()
-        st.write(f"✅  Found: **{lat:.4f}°N, {lon:.4f}°E**")
-        status.update(label="✅ Location found", state="complete")
-
-    # ── Step 2: Fetch weather ──
-    with st.status("☁️ Step 2 — Fetching weather data from Open-Meteo…", expanded=True) as status:
-        start_dt  = target_dt - timedelta(days=int(extra_days))
-        start_str = start_dt.strftime("%Y-%m-%d")
-        end_str   = pred_date.strftime("%Y-%m-%d")
-        raw_df, fetch_err = fetch_weather(lat, lon, start_str, end_str)
+            st.error(geo_err); st.stop()
+        
+        raw_df, fetch_err = fetch_weather(lat, lon, (target_dt - timedelta(days=int(extra_days))).strftime("%Y-%m-%d"), pred_date.strftime("%Y-%m-%d"))
         if fetch_err:
-            status.update(label="❌ Weather fetch failed", state="error")
-            st.error(fetch_err)
-            st.stop()
-        st.write(f"✅  Downloaded **{len(raw_df)}** hourly rows  ({start_str} → {end_str})")
-        status.update(label="✅ Weather data ready", state="complete")
-
-    # ── Step 3: Feature engineering ──
-    with st.status("🔧 Step 3 — Engineering features…", expanded=True) as status:
+            st.error(fetch_err); st.stop()
+        
         feat_df = engineer_features(raw_df)
-        st.write(f"✅  Feature matrix shape: **{feat_df.shape}**")
-        status.update(label="✅ Features ready", state="complete")
-
-    # ── Step 4: Build sequence & predict ──
-    with st.status("🤖 Step 4 — Running Attention-GRU model…", expanded=True) as status:
         tensor, seq_err = build_sequence(feat_df, scaler, target_dt)
         if seq_err:
-            status.update(label="❌ Sequence error", state="error")
-            st.error(seq_err)
-            st.stop()
+            st.error(seq_err); st.stop()
 
         prob = predict(model, tensor)
-        is_cloudburst = prob >= threshold
-        status.update(label="✅ Prediction complete", state="complete")
+        status.update(label="Analysis Complete", state="complete")
 
-    # ─────────────────────────────────────────
-    #  RESULT CARD
-    # ─────────────────────────────────────────
-    if is_cloudburst:
-        st.markdown(f"""
-        <div class="result-box result-danger">
-            <div class="result-icon">⛈️</div>
-            <div class="result-label">CLOUDBURST LIKELY</div>
-            <div class="result-sub">
-                Probability: <strong>{prob*100:.1f}%</strong> &nbsp;|&nbsp; Threshold: 65%
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-    else:
-        st.markdown(f"""
-        <div class="result-box result-safe">
-            <div class="result-icon">🌤️</div>
-            <div class="result-label">CONDITIONS NORMAL</div>
-            <div class="result-sub">
-                Probability: <strong>{prob*100:.1f}%</strong> &nbsp;|&nbsp; Threshold: 65%
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+    # RESULTS
+    is_cb = prob >= 0.65
+    res_class = "result-danger" if is_cb else "result-safe"
+    res_icon = "⛈️" if is_cb else "🌤️"
+    res_label = "CLOUDBURST LIKELY" if is_cb else "CONDITIONS NORMAL"
 
-    # ─────────────────────────────────────────
-    #  SNAPSHOT OF THE LAST HOUR'S WEATHER
-    # ─────────────────────────────────────────
-    st.markdown("### 🌡️ Weather Snapshot at Prediction Time")
+    st.markdown(f"""
+    <div class="result-box {res_class}">
+        <div class="result-icon">{res_icon}</div>
+        <div class="result-label">{res_label}</div>
+        <div>Prob: <strong>{prob*100:.1f}%</strong> | Threshold: 65%</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # SNAPSHOT
     snap = feat_df[feat_df["time"] <= target_dt].tail(1)
     if not snap.empty:
         r = snap.iloc[0]
-        c1, c2, c3, c4, c5 = st.columns(5)
-        metrics = [
-            (c1, "🌡️ Temp",        f"{r['temp']:.1f} °C"),
-            (c2, "💧 Humidity",    f"{r['hum']:.0f} %"),
-            (c3, "🌬️ Pressure",   f"{r['press']:.0f} hPa"),
-            (c4, "☁️ Cloud Cover", f"{r['cloud']:.0f} %"),
-            (c5, "🌧️ Rain (6h)",   f"{r['rain_roll6']:.1f} mm"),
-        ]
-        for col, lbl, val in metrics:
-            with col:
-                st.markdown(f"""
-                <div class="feature-card">
-                    <div class="val">{val}</div>
-                    <div class="lbl">{lbl}</div>
-                </div>
-                """, unsafe_allow_html=True)
-
-    # ─────────────────────────────────────────
-    #  RAW DATA EXPANDER
-    # ─────────────────────────────────────────
-    with st.expander("📊 View raw fetched data"):
-        st.dataframe(raw_df.tail(48), use_container_width=True)
-
-# ─────────────────────────────────────────────
-#  FOOTER / HOW-TO
-# ─────────────────────────────────────────────
-st.markdown("---")
-with st.expander("ℹ️ How to use this app"):
-    st.markdown("""
-    <span class="step-badge">1</span> **Type the location** — district + state works best (e.g. *Kullu, Himachal Pradesh*).  
-    <span class="step-badge">2</span> **Pick a date** — the Open-Meteo archive needs data to be at least 2–3 days old.  
-    <span class="step-badge">3</span> **Choose the hour (UTC)** — the model predicts for that specific hour.  
-    <span class="step-badge">4</span> **Days of history** — the model needs ≥12 hours of prior data; fetching 3 days is safe.  
-    <span class="step-badge">5</span> **Threshold** — 0.50 is balanced; lower it if you want earlier warnings.  
-
-    **Model files needed** (place in the same folder as this script):
-    - `best_cloud_model_attn.pth`
-    - `cloudburst_scaler_attn.pkl`
-
-    **Run the app:**
-    ```bash
-    pip install streamlit torch joblib geopy requests scikit-learn
-    streamlit run cloudburst_app.py
-    ```
-    """, unsafe_allow_html=True)
-
-st.markdown(
-    "<p style='text-align:center; color:#30363d; font-size:0.8rem; margin-top:2rem;'>"
-    "Attention-GRU · Open-Meteo Archive · Built with Streamlit</p>",
-    unsafe_allow_html=True,
-)
+        st.markdown("### 🌡️ Current Conditions")
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Temp", f"{r['temp']:.1f}°C")
+        c2.metric("Humidity", f"{r['hum']:.0f}%")
+        c3.metric("Pressure", f"{r['press']:.0f} hPa")
+        c4.metric("Rain (6h)", f"{r['rain_roll6']:.1f}mm")
